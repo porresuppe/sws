@@ -4,3 +4,6 @@ api_version: go1               # the runtime version
 handlers:
 - url: /.*                     # for all requests
   script: _go_app              # pass the request to the Go code
+
+env_variables:
+  GOOGLE_CLOUD_PROJECT: "part2-webservice"
