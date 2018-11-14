@@ -7,6 +7,7 @@ package webservice
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -53,15 +54,25 @@ func imagesHandler(w http.ResponseWriter, r *http.Request) {
 			log.Fatal(err)
 		}
 
+		var b [][]string
 		for _, val := range result {
-			listImageFiles(ctx, val.URL)
+			img, _ := listImageFiles(ctx, val.URL)
+			b = append(b, img)
+
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+
+		enc := json.NewEncoder(w)
+		err = enc.Encode(b)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	default:
 		http.Error(w, "MethodNotAllowed", http.StatusMethodNotAllowed)
 	}
 }
 
-// TODO: use latF, lngF
 func query(ctx context.Context, proj string, latF, lngF float64) (*bigquery.RowIterator, error) {
 	client, err := bigquery.NewClient(ctx, proj)
 	if err != nil {
@@ -69,9 +80,14 @@ func query(ctx context.Context, proj string, latF, lngF float64) (*bigquery.RowI
 	}
 
 	query := client.Query(
-		`SELECT CONCAT(base_url, '/GRANULE/', granule_id, '/IMG_DATA') as url FROM ` + "`bigquery-public-data.cloud_storage_geo_index.sentinel_2_index`" +
-			`where south_lat < 37.4224764 and 37.4224764 < north_lat and west_lon < -122.0842499 and -122.0842499 < east_lon 
-			LIMIT 3`)
+		`SELECT CONCAT(BASE_URL, '/GRANULE/', GRANULE_ID, '/IMG_DATA') AS URL FROM ` + "`bigquery-public-data.cloud_storage_geo_index.sentinel_2_index`" +
+			`WHERE SOUTH_LAT < @LAT AND @LAT < NORTH_LAT AND WEST_LON < @LNG AND @LNG < EAST_LON 
+			ORDER BY SENSING_TIME DESC
+			LIMIT 1`)
+	query.Parameters = []bigquery.QueryParameter{
+		{Name: "LAT", Value: latF},
+		{Name: "LNG", Value: lngF},
+	}
 
 	return query.Read(ctx)
 }
@@ -96,42 +112,41 @@ func getResults(iter *bigquery.RowIterator) (result []sentinelData, err error) {
 	return
 }
 
-func listImageFiles(ctx context.Context, imgDataUrl string) {
+func listImageFiles(ctx context.Context, imgDataUrl string) ([]string, error) {
 	client, err := storage.NewClient(ctx)
 	if err != nil {
-		log.Panicf("failed to create client: %v", err)
-		return
+		return nil, err
 	}
 	defer client.Close()
 
 	u, err := url.Parse(imgDataUrl)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
 	bucket := client.Bucket(u.Host)
 
-	exists, err := bucket.Attrs(ctx)
-	if err != nil {
-		log.Fatalf("Message: %v", err)
-	}
-	log.Println(exists)
-
 	prefix := strings.TrimLeft(u.Path, "/")
 	log.Printf("Querying af %v", prefix)
+
 	query := &storage.Query{Prefix: prefix}
 	it := bucket.Objects(ctx, query)
+
+	var images []string
 	for {
 		obj, err := it.Next()
 		if err == iterator.Done {
 			break
 		}
 		if err != nil {
-			log.Panicf("unable to list bucket %q: %v", imgDataUrl, err)
-			return
+			return nil, err
 		}
-		log.Printf("(bucket: %v, name: %v", obj.Bucket, obj.Name)
+		if strings.Contains(obj.Name, "B02.jp2") || strings.Contains(obj.Name, "B03.jp2") || strings.Contains(obj.Name, "B04.jp2") {
+			images = append(images, fmt.Sprintf("%v/%v", "gs://gcp-public-data-sentinel-2", obj.Name))
+
+		}
 	}
+	return images, nil
 }
 
 func main() {
