@@ -1,0 +1,10 @@
+
+GET http://localhost:8080/imagesFromAddress?address=Bodil%20ipsens%20vej%204 HTTP/1.1
+
+###
+
+GET http://localhost:8080/images?lat=37.4224764&lng=-122.0842499 HTTP/1.1
+
+###
+
+GET http://localhost:8080/images?lat=37.4224764&lng=-122.0842499&rankByBand=B04 HTTP/1.1

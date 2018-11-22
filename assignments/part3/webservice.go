@@ -1,111 +1,94 @@
-// To use this locally (SDK):
-// 1. Run: gcloud beta auth application-default login
-// 2. Login
-// 3. Run: dev_appserver.py .
-
-// localhost:8080/imagesFromAddress?address=1600+Amphitheatre+Parkway,+Mountain+View,+CA
-
 package webservice
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"google.golang.org/appengine/urlfetch"
-	"io/ioutil"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
-	//"strconv"
+	"sort"
+	"strconv"
 	"strings"
 
-	"cloud.google.com/go/bigquery"
-	"cloud.google.com/go/storage"
-	"google.golang.org/api/iterator"
 	"google.golang.org/appengine"
 )
-
-var DEBUG bool = false
-
-type Location struct {
-	Lat float64 `json:"lat"`
-	Lng float64 `json:"lng"`
-}
-
-type Geometry struct {
-	Location Location `json:"location"`
-}
-
-type Results struct {
-	Geometry Geometry `json:"geometry"`
-}
-
-type outer struct {
-	Results []Results `json:"results"`
-}
 
 type data struct {
 	ctx context.Context
 }
 
-func (d *data) doGet(url string) (latF float64, lngF float64, err error) {
+var band2File = "B02.jp2" // Blue band
+var band3File = "B03.jp2" // Green band
+var band4File = "B04.jp2" // Red band
 
-	var res *http.Response
-	if DEBUG {
-		req, err := http.NewRequest("GET", url, nil)
+func imagesHandler(w http.ResponseWriter, r *http.Request) {
+	log.Println("in imagesHandler")
+
+	switch r.Method {
+	case "GET":
+		r.ParseForm()
+		lat := r.Form.Get("lat")
+		lng := r.Form.Get("lng")
+		band := r.Form.Get("rankByBand")
+
+		log.Printf("lat is %s and lng is %s", lat, lng)
+
+		latF, err := strconv.ParseFloat(lat, 64)
 		if err != nil {
-			return latF, lngF, err
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
-		client := http.DefaultClient
-		res, err = client.Do(req)
+		lngF, err := strconv.ParseFloat(lng, 64)
 		if err != nil {
-			return latF, lngF, err
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
-	} else {
-		client := urlfetch.Client(d.ctx)
-		res, err = client.Get(url)
+
+		ctx := appengine.NewContext(r)
+		d := data{ctx: ctx}
+		rows, err := d.query(proj, latF, lngF)
 		if err != nil {
-			return latF, lngF, err
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
+		result, err := getResults(rows)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		var b [][]string
+		for _, val := range result {
+			img, err := d.listImageFiles(val.URL)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			b = append(b, img)
+		}
+
+		if band != "" {
+			b, err = d.rankByBand(band, b)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+
+		enc := json.NewEncoder(w)
+		err = enc.Encode(b)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	default:
+		http.Error(w, "MethodNotAllowed", http.StatusMethodNotAllowed)
 	}
-	defer res.Body.Close()
-
-	b, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return latF, lngF, err
-	}
-	log.Printf("Body is %s", b)
-
-	var o outer
-	err = json.Unmarshal([]byte(b), &o)
-
-	loc := o.Results[0].Geometry.Location
-	latF = loc.Lat
-	lngF = loc.Lng
-
-	{
-		// var result map[string]interface{}
-		// json.Unmarshal([]byte(b), &result)
-		// location := result["results"].(interface{}).([]interface{})[0].(map[string]interface{})["geometry"].(map[string]interface{})["location"].(map[string]interface{})
-		// for key, value := range location {
-		// 	if key == "lat" {
-		// 		lat := value.(string)
-		// 		latF, err = strconv.ParseFloat(lat, 64)
-		// 		if err != nil {
-		// 			return
-		// 		}
-		// 	} else {
-		// 		lng := value.(string)
-		// 		lngF, err = strconv.ParseFloat(lng, 64)
-		// 		if err != nil {
-		// 			return
-		// 		}
-		// 	}
-		// }
-	}
-
-	return
 }
 
 func imagesFromAddressHandler(w http.ResponseWriter, r *http.Request) {
@@ -118,29 +101,31 @@ func imagesFromAddressHandler(w http.ResponseWriter, r *http.Request) {
 
 		log.Printf("address is %s", address)
 
-		geocodeUrl := fmt.Sprintf("https://maps.googleapis.com/maps/api/geocode/json?address=%v&key=%v", url.QueryEscape(address), geocodeApiKey)
-		log.Printf("geocodeUrl is %s", geocodeUrl)
-
 		ctx := appengine.NewContext(r)
 		d := data{ctx: ctx}
-		latF, lngF, _ := d.doGet(geocodeUrl)
+		latF, lngF, _ := d.getLocation(address, geocodeAPIKey)
 
 		log.Printf("lat is %f and lng is %f", latF, lngF)
 
-		rows, err := query(ctx, proj, latF, lngF)
+		rows, err := d.query(proj, latF, lngF)
 		if err != nil {
-			log.Fatal(err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 		result, err := getResults(rows)
 		if err != nil {
-			log.Fatal(err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		var b [][]string
 		for _, val := range result {
-			img, _ := listImageFiles(ctx, val.URL)
+			img, err := d.listImageFiles(val.URL)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 			b = append(b, img)
-
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -149,120 +134,107 @@ func imagesFromAddressHandler(w http.ResponseWriter, r *http.Request) {
 		err = enc.Encode(b)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 	default:
 		http.Error(w, "MethodNotAllowed", http.StatusMethodNotAllowed)
 	}
 }
 
-func query(ctx context.Context, proj string, latF, lngF float64) (*bigquery.RowIterator, error) {
-	client, err := bigquery.NewClient(ctx, proj)
-	if err != nil {
-		return nil, err
-	}
-
-	query := client.Query(
-		`SELECT CONCAT(BASE_URL, '/GRANULE/', GRANULE_ID, '/IMG_DATA') AS URL FROM ` + "`bigquery-public-data.cloud_storage_geo_index.sentinel_2_index`" +
-			`WHERE SOUTH_LAT < @LAT AND @LAT < NORTH_LAT AND WEST_LON < @LNG AND @LNG < EAST_LON 
-			ORDER BY SENSING_TIME DESC
-			LIMIT 1`)
-	query.Parameters = []bigquery.QueryParameter{
-		{Name: "LAT", Value: latF},
-		{Name: "LNG", Value: lngF},
-	}
-
-	return query.Read(ctx)
+type avgColor struct {
+	averageColor int
+	imagePaths   []string
 }
 
-type sentinelData struct {
-	URL string `bigquery:"url"`
+func (d *data) rankByBand(band string, imagePaths [][]string) ([][]string, error) {
+	log.Printf("Ranking based on band %s", band)
+
+	var bFile string
+	var target int
+	switch band {
+	case "B02":
+		bFile = band2File
+		target = getLuminosity(0, 0, 255)
+	case "B03":
+		bFile = band3File
+		target = getLuminosity(0, 255, 0)
+	case "B04":
+		bFile = band4File
+		target = getLuminosity(255, 0, 0)
+	default:
+		return nil, fmt.Errorf("band %v not allowed", band)
+	}
+
+	log.Printf("bFile is %v, target is %d", bFile, target)
+
+	var avgColors []avgColor
+	for i := 0; i < len(imagePaths); i++ {
+		row := imagePaths[i]
+		for j := 0; j < len(row); j++ {
+			if strings.Contains(row[j], bFile) {
+				u, err := url.Parse(row[j])
+				if err != nil {
+					return nil, err
+				}
+
+				path := strings.TrimLeft(u.Path, "/")
+				a, err := d.averageColor(path)
+				if err != nil {
+					return nil, err
+				}
+
+				avgColors = append(avgColors, avgColor{averageColor: a, imagePaths: row})
+			}
+		}
+	}
+
+	sort.Slice(avgColors, func(i, j int) bool {
+		return math.Abs(float64(target-avgColors[i].averageColor)) < math.Abs(float64(target-avgColors[j].averageColor))
+	})
+
+	var result [][]string
+	for _, val := range avgColors {
+		result = append(result, val.imagePaths)
+	}
+	return result, nil
 }
 
-func getResults(iter *bigquery.RowIterator) (result []sentinelData, err error) {
-	for {
-		var row sentinelData
-		err := iter.Next(&row)
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
+func getLuminosity(r, g, b int) int {
+	rgbLum := 0.21*float64(r) + 0.72*float64(g) + 0.07*float64(b)
+	return int(round(10000.0/256*rgbLum, 0.5, 0)) // One of the operands must be a floating-point constant for the result to a floating-point constant (https://stackoverflow.com/a/32815507)
+}
 
-		result = append(result, row)
+func round(val float64, roundOn float64, places int) (newVal float64) {
+	var round float64
+	pow := math.Pow(10, float64(places))
+	digit := pow * val
+	_, div := math.Modf(digit)
+	if div >= roundOn {
+		round = math.Ceil(digit)
+	} else {
+		round = math.Floor(digit)
 	}
+	newVal = round / pow
 	return
 }
 
-func listImageFiles(ctx context.Context, imgDataUrl string) ([]string, error) {
-	client, err := storage.NewClient(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer client.Close()
-
-	u, err := url.Parse(imgDataUrl)
-	if err != nil {
-		return nil, err
-	}
-
-	bucket := client.Bucket(u.Host)
-
-	prefix := strings.TrimLeft(u.Path, "/")
-	log.Printf("Querying af %v", prefix)
-
-	query := &storage.Query{Prefix: prefix}
-	it := bucket.Objects(ctx, query)
-
-	var images []string
-	for {
-		obj, err := it.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-		if strings.Contains(obj.Name, "B02.jp2") || strings.Contains(obj.Name, "B03.jp2") || strings.Contains(obj.Name, "B04.jp2") {
-			images = append(images, fmt.Sprintf("%v/%v", "gs://gcp-public-data-sentinel-2", obj.Name))
-
-		}
-	}
-	return images, nil
-}
-
-func main() {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-	http.HandleFunc("/imagesFromAddress", imagesFromAddressHandler)
-
-	geocodeApiKey = os.Getenv("GEOCODE_API_KEY")
-	if geocodeApiKey == "" {
-		fmt.Println("GEOCODE_API_KEY environment variable must be set.")
-		os.Exit(1)
-	}
-
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", port), nil))
-}
-
 var proj string
-var geocodeApiKey string
+var geocodeAPIKey string
 
 func init() {
 	log.Println("in init")
 	proj = os.Getenv("GOOGLE_CLOUD_PROJECT") // environment variables are set in the yaml file
 	if proj == "" {
-		fmt.Println("GOOGLE_CLOUD_PROJECT environment variable must be set.")
-		os.Exit(1)
+		log.Fatal("GOOGLE_CLOUD_PROJECT environment variable must be set.")
+		return
 	}
 
-	geocodeApiKey = os.Getenv("GEOCODE_API_KEY")
-	if geocodeApiKey == "" {
-		fmt.Println("GEOCODE_API_KEY environment variable must be set.")
-		os.Exit(1)
+	geocodeAPIKey = os.Getenv("GEOCODE_API_KEY")
+	if geocodeAPIKey == "" {
+		log.Fatal("GEOCODE_API_KEY environment variable must be set.")
+		return
 	}
 
+	http.HandleFunc("/images", imagesHandler)
 	http.HandleFunc("/imagesFromAddress", imagesFromAddressHandler)
 }
