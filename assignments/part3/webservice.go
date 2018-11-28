@@ -80,7 +80,7 @@ func imagesHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if len(value) == 6 {
-			b, err = d.rankByValue(value, b)
+			b, err = d.rankByColor(value, b, false)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -150,70 +150,30 @@ func imagesFromAddressHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-type colorBand struct {
-	averageColor float64
-	imagePaths   []string
-}
-
 func (d *data) rankByBand(band string, imagePaths [][]string) ([][]string, error) {
 	log.Printf("Ranking based on band %s", band)
 
-	var bFile string
-	var target float64
+	var value string
 	switch band {
 	case "B02":
-		bFile = band2File
-		target = getLuminosity(0, 0, 255)
+		value = "0000ff"
 	case "B03":
-		bFile = band3File
-		target = getLuminosity(0, 255, 0)
+		value = "00ff00"
 	case "B04":
-		bFile = band4File
-		target = getLuminosity(255, 0, 0)
+		value = "ff0000"
 	default:
 		return nil, fmt.Errorf("band %v not allowed", band)
 	}
 
-	log.Printf("bFile is %v, target is %v", bFile, target)
-
-	var avgColors []colorBand
-	for i := 0; i < len(imagePaths); i++ {
-		row := imagePaths[i]
-		for j := 0; j < len(row); j++ {
-			if strings.Contains(row[j], bFile) {
-				u, err := url.Parse(row[j])
-				if err != nil {
-					return nil, err
-				}
-
-				path := strings.TrimLeft(u.Path, "/")
-				a, err := d.averageColor(path)
-				if err != nil {
-					return nil, err
-				}
-
-				avgColors = append(avgColors, colorBand{averageColor: a, imagePaths: row})
-			}
-		}
-	}
-
-	sort.Slice(avgColors, func(i, j int) bool {
-		return math.Abs(target-avgColors[i].averageColor) < math.Abs(target-avgColors[j].averageColor)
-	})
-
-	var result [][]string
-	for _, val := range avgColors {
-		result = append(result, val.imagePaths)
-	}
-	return result, nil
+	return d.rankByColor(value, imagePaths, true)
 }
 
-type colorValue struct {
+type distImg struct {
 	distance   float64
 	imagePaths []string
 }
 
-func (d *data) rankByValue(value string, imagePaths [][]string) ([][]string, error) {
+func (d *data) rankByColor(value string, imagePaths [][]string, byBand bool) ([][]string, error) {
 	log.Printf("Ranking based on value %s", value)
 
 	r, g, b, err := getRGBFromHex(value)
@@ -238,35 +198,39 @@ func (d *data) rankByValue(value string, imagePaths [][]string) ([][]string, err
 		return a, nil
 	}
 
-	var avgColors []colorValue
+	var distImgList []distImg
 	for i := 0; i < len(imagePaths); i++ {
 		row := imagePaths[i]
 		dist := 0.0
 		var rAvg, gAvg, bAvg float64
 		for j := 0; j < len(row); j++ {
-			if strings.Contains(row[j], band4File) {
+			if strings.Contains(row[j], band4File) && (target[0] > 0.0 || !byBand) {
 				rAvg, _ = getAvg(row[j])
 			}
-			if strings.Contains(row[j], band3File) {
+			if strings.Contains(row[j], band3File) && (target[1] > 0.0 || !byBand) {
 				gAvg, _ = getAvg(row[j])
 			}
-			if strings.Contains(row[j], band2File) {
+			if strings.Contains(row[j], band2File) && (target[2] > 0.0 || !byBand) {
 				bAvg, _ = getAvg(row[j])
 			}
 		}
 		dist = distance(target, [3]float64{rAvg, gAvg, bAvg})
 		log.Printf("dist is %v", dist)
-		avgColors = append(avgColors, colorValue{distance: dist, imagePaths: row})
+		distImgList = append(distImgList, distImg{distance: dist, imagePaths: row})
 	}
 
-	sort.Slice(avgColors, func(i, j int) bool {
-		return avgColors[i].distance < avgColors[j].distance
+	sort.Slice(distImgList, func(i, j int) bool {
+		return distImgList[i].distance < distImgList[j].distance
 	})
 
+	// log.Printf("imagePaths is %v", imagePaths)
+
 	var result [][]string
-	for _, val := range avgColors {
+	for _, val := range distImgList {
 		result = append(result, val.imagePaths)
 	}
+
+	// log.Printf("result is %v", result)
 
 	return result, nil
 }
@@ -301,20 +265,6 @@ func getInt(s string) (int, error) {
 func getLuminosity(r, g, b int) float64 {
 	rgbLum := 0.21*float64(r) + 0.72*float64(g) + 0.07*float64(b)
 	return 10000.0 / 256 * rgbLum // One of the operands must be a floating-point constant for the result to a floating-point constant (https://stackoverflow.com/a/32815507)
-}
-
-func round(val float64, roundOn float64, places int) (newVal float64) {
-	var round float64
-	pow := math.Pow(10, float64(places))
-	digit := pow * val
-	_, div := math.Modf(digit)
-	if div >= roundOn {
-		round = math.Ceil(digit)
-	} else {
-		round = math.Floor(digit)
-	}
-	newVal = round / pow
-	return
 }
 
 // distance calculates the Eucleadian distance between 2 points
