@@ -20,7 +20,7 @@ type jp2Response struct {
 	TimeProcessing float64 `json:"time_processing"`
 }
 
-func (d *data) averageColor(path string) (int, error) {
+func (d *data) averageColor(path string) (float64, error) {
 	reqBody, err := json.Marshal(jp2Request{Path: path, Rlevel: -1})
 	if err != nil {
 		return 0, err
@@ -30,13 +30,13 @@ func (d *data) averageColor(path string) (int, error) {
 	client := urlfetch.Client(d.ctx)
 	response, err := client.Post(url, "application/json", bytes.NewBuffer(reqBody))
 	if err != nil {
-		return 0, err
+		return 0.0, err
 	}
 	defer response.Body.Close()
 
 	body, err := ioutil.ReadAll(response.Body)
 	if err != nil {
-		return 0, err
+		return 0.0, err
 	}
 	//log.Printf("Body is %s", body)
 
@@ -50,7 +50,7 @@ func (d *data) averageColor(path string) (int, error) {
 			total += row[j]
 		}
 	}
-	average := total / (jp2Res.Shape[0] * jp2Res.Shape[1])
+	average := float64(total) / float64(jp2Res.Shape[0]*jp2Res.Shape[1])
 
 	log.Printf("average is %v", average)
 

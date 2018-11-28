@@ -33,6 +33,7 @@ func imagesHandler(w http.ResponseWriter, r *http.Request) {
 		lat := r.Form.Get("lat")
 		lng := r.Form.Get("lng")
 		band := r.Form.Get("rankByBand")
+		value := r.Form.Get("rankByValue")
 
 		log.Printf("lat is %s and lng is %s", lat, lng)
 
@@ -72,6 +73,14 @@ func imagesHandler(w http.ResponseWriter, r *http.Request) {
 
 		if band != "" {
 			b, err = d.rankByBand(band, b)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+
+		if len(value) == 6 {
+			b, err = d.rankByValue(value, b)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -141,8 +150,8 @@ func imagesFromAddressHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-type avgColor struct {
-	averageColor int
+type colorBand struct {
+	averageColor float64
 	imagePaths   []string
 }
 
@@ -150,7 +159,7 @@ func (d *data) rankByBand(band string, imagePaths [][]string) ([][]string, error
 	log.Printf("Ranking based on band %s", band)
 
 	var bFile string
-	var target int
+	var target float64
 	switch band {
 	case "B02":
 		bFile = band2File
@@ -165,9 +174,9 @@ func (d *data) rankByBand(band string, imagePaths [][]string) ([][]string, error
 		return nil, fmt.Errorf("band %v not allowed", band)
 	}
 
-	log.Printf("bFile is %v, target is %d", bFile, target)
+	log.Printf("bFile is %v, target is %v", bFile, target)
 
-	var avgColors []avgColor
+	var avgColors []colorBand
 	for i := 0; i < len(imagePaths); i++ {
 		row := imagePaths[i]
 		for j := 0; j < len(row); j++ {
@@ -183,13 +192,13 @@ func (d *data) rankByBand(band string, imagePaths [][]string) ([][]string, error
 					return nil, err
 				}
 
-				avgColors = append(avgColors, avgColor{averageColor: a, imagePaths: row})
+				avgColors = append(avgColors, colorBand{averageColor: a, imagePaths: row})
 			}
 		}
 	}
 
 	sort.Slice(avgColors, func(i, j int) bool {
-		return math.Abs(float64(target-avgColors[i].averageColor)) < math.Abs(float64(target-avgColors[j].averageColor))
+		return math.Abs(target-avgColors[i].averageColor) < math.Abs(target-avgColors[j].averageColor)
 	})
 
 	var result [][]string
@@ -199,9 +208,99 @@ func (d *data) rankByBand(band string, imagePaths [][]string) ([][]string, error
 	return result, nil
 }
 
-func getLuminosity(r, g, b int) int {
+type colorValue struct {
+	distance   float64
+	imagePaths []string
+}
+
+func (d *data) rankByValue(value string, imagePaths [][]string) ([][]string, error) {
+	log.Printf("Ranking based on value %s", value)
+
+	r, g, b, err := getRGBFromHex(value)
+	if err != nil {
+		return nil, err
+	}
+	target := [3]float64{getLuminosity(r, 0, 0), getLuminosity(0, g, 0), getLuminosity(0, 0, b)}
+
+	log.Printf("target is %v", target)
+
+	getAvg := func(urlStr string) (float64, error) {
+		u, err := url.Parse(urlStr)
+		if err != nil {
+			return 0, err
+		}
+
+		path := strings.TrimLeft(u.Path, "/")
+		a, err := d.averageColor(path)
+		if err != nil {
+			return 0, err
+		}
+		return a, nil
+	}
+
+	var avgColors []colorValue
+	for i := 0; i < len(imagePaths); i++ {
+		row := imagePaths[i]
+		dist := 0.0
+		var rAvg, gAvg, bAvg float64
+		for j := 0; j < len(row); j++ {
+			if strings.Contains(row[j], band4File) {
+				rAvg, _ = getAvg(row[j])
+			}
+			if strings.Contains(row[j], band3File) {
+				gAvg, _ = getAvg(row[j])
+			}
+			if strings.Contains(row[j], band2File) {
+				bAvg, _ = getAvg(row[j])
+			}
+		}
+		dist = distance(target, [3]float64{rAvg, gAvg, bAvg})
+		log.Printf("dist is %v", dist)
+		avgColors = append(avgColors, colorValue{distance: dist, imagePaths: row})
+	}
+
+	sort.Slice(avgColors, func(i, j int) bool {
+		return avgColors[i].distance < avgColors[j].distance
+	})
+
+	var result [][]string
+	for _, val := range avgColors {
+		result = append(result, val.imagePaths)
+	}
+
+	return result, nil
+}
+
+func getRGBFromHex(value string) (int, int, int, error) {
+	a := []rune(value)
+
+	r, err := getInt(string(a[0:2]))
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	g, err := getInt(string(a[2:4]))
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	b, err := getInt(string(a[4:6]))
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	return r, g, b, nil
+}
+
+func getInt(s string) (int, error) {
+	n, err := strconv.ParseInt(s, 16, 0)
+	if err != nil {
+		return 0, err
+	}
+	return int(n), nil
+}
+
+func getLuminosity(r, g, b int) float64 {
 	rgbLum := 0.21*float64(r) + 0.72*float64(g) + 0.07*float64(b)
-	return int(round(10000.0/256*rgbLum, 0.5, 0)) // One of the operands must be a floating-point constant for the result to a floating-point constant (https://stackoverflow.com/a/32815507)
+	return 10000.0 / 256 * rgbLum // One of the operands must be a floating-point constant for the result to a floating-point constant (https://stackoverflow.com/a/32815507)
 }
 
 func round(val float64, roundOn float64, places int) (newVal float64) {
@@ -216,6 +315,15 @@ func round(val float64, roundOn float64, places int) (newVal float64) {
 	}
 	newVal = round / pow
 	return
+}
+
+// distance calculates the Eucleadian distance between 2 points
+func distance(p1 [3]float64, p2 [3]float64) float64 {
+	return math.Sqrt(sq(p2[0]-p1[0]) + sq(p2[1]-p1[1]) + sq(p2[2]-p1[2]))
+}
+
+func sq(n float64) float64 {
+	return n * n
 }
 
 var proj string
