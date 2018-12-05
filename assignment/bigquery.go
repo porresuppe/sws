@@ -12,8 +12,6 @@ func (d *data) query(proj string, latF, lngF float64) (*bigquery.RowIterator, er
 		return nil, err
 	}
 
-	limit := 10000
-
 	query := client.Query(
 		`SELECT CONCAT(BASE_URL, '/GRANULE/', GRANULE_ID, '/IMG_DATA') AS URL FROM ` + "`bigquery-public-data.cloud_storage_geo_index.sentinel_2_index`" +
 			`WHERE SOUTH_LAT < @LAT AND @LAT < NORTH_LAT AND WEST_LON < @LNG AND @LNG < EAST_LON 
@@ -33,8 +31,6 @@ func (d *data) queryArea(proj string, southLatF, northLatF, westLngF, eastLngF f
 	if err != nil {
 		return nil, err
 	}
-
-	limit := 10000
 
 	query := client.Query(
 		`SELECT CONCAT(BASE_URL, '/GRANULE/', GRANULE_ID, '/IMG_DATA') AS URL FROM ` + "`bigquery-public-data.cloud_storage_geo_index.sentinel_2_index`" +

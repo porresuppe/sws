@@ -8,3 +8,4 @@ handlers:
 env_variables:
   GOOGLE_CLOUD_PROJECT: "part2-webservice"
   GEOCODE_API_KEY: "put api key here"
+  BIQ_QUERY_LIMIT: "3"

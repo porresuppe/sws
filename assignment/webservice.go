@@ -348,6 +348,7 @@ func sq(n float64) float64 {
 
 var proj string
 var geocodeAPIKey string
+var bigQueryLimit int
 
 func init() {
 	log.Println("in init")
@@ -360,6 +361,13 @@ func init() {
 	geocodeAPIKey = os.Getenv("GEOCODE_API_KEY")
 	if geocodeAPIKey == "" {
 		log.Fatal("GEOCODE_API_KEY environment variable must be set.")
+		return
+	}
+
+	var err error
+	bigQueryLimit, err = strconv.Atoi(os.Getenv("BIQ_QUERY_LIMIT"))
+	if err != nil {
+		log.Fatalf("BIQ_QUERY_LIMIT environment variable must be set. Err is: %s", err)
 		return
 	}
 
