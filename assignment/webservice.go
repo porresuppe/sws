@@ -101,7 +101,7 @@ func imagesHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func imagesFromAddressHandler(w http.ResponseWriter, r *http.Request) {
-	log.Println("in imagesHandler")
+	log.Println("in imagesFromAddressHandler")
 
 	switch r.Method {
 	case "GET":
@@ -117,6 +117,76 @@ func imagesFromAddressHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("lat is %f and lng is %f", latF, lngF)
 
 		rows, err := d.query(proj, latF, lngF)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		result, err := getResults(rows)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		var b [][]string
+		for _, val := range result {
+			img, err := d.listImageFiles(val.URL)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			b = append(b, img)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+
+		enc := json.NewEncoder(w)
+		err = enc.Encode(b)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	default:
+		http.Error(w, "MethodNotAllowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func imagesFromAreaHandler(w http.ResponseWriter, r *http.Request) {
+	log.Println("in imagesFromAreaHandler")
+
+	switch r.Method {
+	case "GET":
+		r.ParseForm()
+		southLat := r.Form.Get("slat")
+		northLat := r.Form.Get("nlat")
+		westLng := r.Form.Get("wlng")
+		eastLng := r.Form.Get("elng")
+
+		log.Printf("southLat is %s, northLat is %s, westLng is %s and eastLng is %s", southLat, northLat, westLng, eastLng)
+
+		southLatF, err := strconv.ParseFloat(southLat, 64)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		northLatF, err := strconv.ParseFloat(northLat, 64)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		westLngF, err := strconv.ParseFloat(westLng, 64)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		eastLngF, err := strconv.ParseFloat(eastLng, 64)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		ctx := appengine.NewContext(r)
+		d := data{ctx: ctx}
+		rows, err := d.queryArea(proj, southLatF, northLatF, westLngF, eastLngF)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -295,4 +365,5 @@ func init() {
 
 	http.HandleFunc("/images", imagesHandler)
 	http.HandleFunc("/imagesFromAddress", imagesFromAddressHandler)
+	http.HandleFunc("/imagesFromArea", imagesFromAreaHandler)
 }

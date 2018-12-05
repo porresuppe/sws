@@ -12,3 +12,7 @@ GET http://localhost:8080/images?lat=37.4224764&lng=-122.0842499&rankByBand=B04 
 ###
 
 GET http://localhost:8080/images?lat=37.4224764&lng=-122.0842499&rankByValue=F4B1B1 HTTP/1.1
+
+###
+
+GET http://localhost:8080/imagesFromArea?slat=54.76906&nlat=57.72093&wlng=8.24402&elng=14.70664 HTTP/1.1
