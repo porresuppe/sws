@@ -20,7 +20,7 @@ func (d *data) query(proj string, latF, lngF float64) (*bigquery.RowIterator, er
 	query.Parameters = []bigquery.QueryParameter{
 		{Name: "LAT", Value: latF},
 		{Name: "LNG", Value: lngF},
-		{Name: "LIMIT", Value: limit},
+		{Name: "LIMIT", Value: bigQueryLimit},
 	}
 
 	return query.Read(d.ctx)
@@ -42,7 +42,7 @@ func (d *data) queryArea(proj string, southLatF, northLatF, westLngF, eastLngF f
 		{Name: "NORTH_LAT", Value: northLatF},
 		{Name: "WEST_LON", Value: westLngF},
 		{Name: "EAST_LON", Value: eastLngF},
-		{Name: "LIMIT", Value: limit},
+		{Name: "LIMIT", Value: bigQueryLimit},
 	}
 
 	return query.Read(d.ctx)
