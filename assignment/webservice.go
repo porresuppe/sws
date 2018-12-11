@@ -14,7 +14,7 @@ import (
 	"strings"
 
 	// "cloud.google.com/go/profiler"
-	//_ "github.com/mkevac/debugcharts"
+	_ "github.com/mkevac/debugcharts"
 	"google.golang.org/appengine"
 	_ "net/http/pprof"
 )
@@ -392,5 +392,7 @@ func main() {
 	http.HandleFunc("/imagesFromAddress", imagesFromAddressHandler)
 	http.HandleFunc("/imagesFromArea", imagesFromAreaHandler)
 
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", port), nil))
+	appengine.Main()
+
+	//log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", port), nil))
 }

@@ -1,5 +1,5 @@
 
-GET http://localhost:8080/imagesFromAddress?address=Bodil%20ipsens%20vej%204 HTTP/1.1
+GET http://localhost:8080/imagesFromAddress?address=address=1600+Amphitheatre+Parkway,+Mountain+View,+CA HTTP/1.1
 
 ###
 

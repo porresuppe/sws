@@ -33,6 +33,7 @@ func (d *data) getLocation(address string, geocodeAPIKey string) (latF float64, 
 	client := urlfetch.Client(d.ctx)
 	res, err := client.Get(geocodeURL)
 	if err != nil {
+		log.Printf("Error is: %s", err.Error())
 		return latF, lngF, err
 	}
 	defer res.Body.Close()
