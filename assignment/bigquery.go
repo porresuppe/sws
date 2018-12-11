@@ -1,4 +1,4 @@
-package webservice
+package main
 
 import (
 	"cloud.google.com/go/bigquery"
@@ -11,6 +11,7 @@ func (d *data) query(proj string, latF, lngF float64) (*bigquery.RowIterator, er
 	if err != nil {
 		return nil, err
 	}
+	defer client.Close()
 
 	query := client.Query(
 		`SELECT CONCAT(BASE_URL, '/GRANULE/', GRANULE_ID, '/IMG_DATA') AS URL FROM ` + "`bigquery-public-data.cloud_storage_geo_index.sentinel_2_index`" +
@@ -31,12 +32,13 @@ func (d *data) queryArea(proj string, southLatF, northLatF, westLngF, eastLngF f
 	if err != nil {
 		return nil, err
 	}
+	defer client.Close()
 
 	query := client.Query(
 		`SELECT CONCAT(BASE_URL, '/GRANULE/', GRANULE_ID, '/IMG_DATA') AS URL FROM ` + "`bigquery-public-data.cloud_storage_geo_index.sentinel_2_index`" +
 			`WHERE @SOUTH_LAT <= SOUTH_LAT AND NORTH_LAT <= @NORTH_LAT AND @WEST_LON <= WEST_LON AND EAST_LON <= @EAST_LON 
 			ORDER BY SENSING_TIME DESC
-	LIMIT @LIMIT`)
+			LIMIT @LIMIT`)
 	query.Parameters = []bigquery.QueryParameter{
 		{Name: "SOUTH_LAT", Value: southLatF},
 		{Name: "NORTH_LAT", Value: northLatF},

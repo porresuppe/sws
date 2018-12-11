@@ -1,4 +1,4 @@
-package webservice
+package main
 
 import (
 	"bytes"

@@ -1,4 +1,4 @@
-package webservice
+package main
 
 import (
 	"context"
@@ -13,7 +13,10 @@ import (
 	"strconv"
 	"strings"
 
+	// "cloud.google.com/go/profiler"
+	//_ "github.com/mkevac/debugcharts"
 	"google.golang.org/appengine"
+	_ "net/http/pprof"
 )
 
 type data struct {
@@ -350,7 +353,7 @@ var proj string
 var geocodeAPIKey string
 var bigQueryLimit int
 
-func init() {
+func main() {
 	log.Println("in init")
 	proj = os.Getenv("GOOGLE_CLOUD_PROJECT") // environment variables are set in the yaml file
 	if proj == "" {
@@ -371,7 +374,23 @@ func init() {
 		return
 	}
 
+	// // Profiler initialization, best done as early as possible.
+	// if err := profiler.Start(profiler.Config{
+	// 	Service:   "webservice",
+	// 	ProjectID: proj,
+	// }); err != nil {
+	// 	log.Fatalf("Could not start profiler. Err is: %s", err)
+	// 	return
+	// }
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
 	http.HandleFunc("/images", imagesHandler)
 	http.HandleFunc("/imagesFromAddress", imagesFromAddressHandler)
 	http.HandleFunc("/imagesFromArea", imagesFromAreaHandler)
+
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", port), nil))
 }
