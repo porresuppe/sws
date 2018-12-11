@@ -47,7 +47,12 @@ func (d *data) averageColor(path string) (float64, error) {
 	for i := 0; i < len(jp2Res.ImageData); i++ {
 		row := jp2Res.ImageData[i]
 		for j := 0; j < len(row); j++ {
-			total += row[j]
+			if row[j] > int(quantificationValue) {
+				log.Printf("row[j] is %v and above the quantification value. Capping the value to %v", row[j], quantificationValue)
+				total += int(quantificationValue)
+			} else {
+				total += row[j]
+			}
 		}
 	}
 	average := float64(total) / float64(jp2Res.Shape[0]*jp2Res.Shape[1])

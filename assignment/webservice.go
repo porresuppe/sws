@@ -337,7 +337,7 @@ func getInt(s string) (int, error) {
 
 func getLuminosity(r, g, b int) float64 {
 	rgbLum := 0.21*float64(r) + 0.72*float64(g) + 0.07*float64(b)
-	return 10000.0 / 256 * rgbLum // One of the operands must be a floating-point constant for the result to a floating-point constant (https://stackoverflow.com/a/32815507)
+	return quantificationValue / 256 * rgbLum // One of the operands must be a floating-point constant for the result to a floating-point constant (https://stackoverflow.com/a/32815507)
 }
 
 // distance calculates the Eucleadian distance between 2 points
@@ -352,6 +352,7 @@ func sq(n float64) float64 {
 var proj string
 var geocodeAPIKey string
 var bigQueryLimit int
+var quantificationValue = 10000.0
 
 func main() {
 	log.Println("in init")
